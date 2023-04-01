@@ -9,17 +9,17 @@ import (
 )
 
 type OnPostRequest struct {
-	callback      ProcessReqFunCallback
-	processReqFun ProcessReqFun
+	Callback      ProcessReqFunCallback
+	ProcessReqFun ProcessReqFun
 }
 
 func (o OnPostRequest) DoWtCtx(ctx context.Context, request PostRequest) {
-	go o.processReqFun(ctx, request, o.callback)
+	go o.ProcessReqFun(ctx, request, o.Callback)
 }
 
 type RedisPostHandler struct {
-	redisClient   *redis.Client
-	onPostRequest OnPostRequest
+	RedisClient   *redis.Client
+	OnPostRequest OnPostRequest
 }
 
 func (r RedisPostHandler) Do(request PostRequest) PostResponse {
@@ -35,7 +35,7 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 		CreatedAt:          time.Now().UnixMilli(),
 		IsResponseFinished: false,
 	}
-	cmd := r.redisClient.Set(ctx, key, val, time.Second*30)
+	cmd := r.RedisClient.Set(ctx, key, val, time.Second*30)
 
 	if cmd.Err() != nil {
 		return PostResponse{
@@ -45,7 +45,7 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 		}
 	}
 
-	r.onPostRequest.DoWtCtx(ctx, request)
+	r.OnPostRequest.DoWtCtx(ctx, request)
 
 	return PostResponse{
 		IsError:      false,
@@ -55,7 +55,7 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 }
 
 type RedisGetHandler struct {
-	redisClient *redis.Client
+	RedisClient *redis.Client
 }
 
 func (r RedisGetHandler) handle(requestId string) GetResponse {
@@ -63,7 +63,7 @@ func (r RedisGetHandler) handle(requestId string) GetResponse {
 }
 
 func (r RedisGetHandler) handleWtCtx(ctx context.Context, requestId string) GetResponse {
-	cmd := r.redisClient.Get(ctx, requestId)
+	cmd := r.RedisClient.Get(ctx, requestId)
 	if cmd.Err() != nil {
 		//TODO implement
 		panic("unhandled getting value from redis")
