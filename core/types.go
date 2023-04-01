@@ -35,6 +35,6 @@ type (
 
 	GetHandler interface {
 		Do(requestId string) GetResponse
-		DoWtCtx(requestId string) GetResponse
+		DoWtCtx(ctx context.Context, requestId string) GetResponse
 	}
 )

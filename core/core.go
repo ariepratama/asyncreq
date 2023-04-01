@@ -69,11 +69,11 @@ type RedisGetHandler struct {
 	RedisClient *redis.Client
 }
 
-func (r RedisGetHandler) handle(requestId string) GetResponse {
-	return r.handleWtCtx(context.Background(), requestId)
+func (r RedisGetHandler) Do(requestId string) GetResponse {
+	return r.DoWtCtx(context.Background(), requestId)
 }
 
-func (r RedisGetHandler) handleWtCtx(ctx context.Context, requestId string) GetResponse {
+func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetResponse {
 	cmd := r.RedisClient.Get(ctx, requestId)
 	if cmd.Err() != nil {
 		//TODO implement
