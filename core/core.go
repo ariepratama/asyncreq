@@ -35,7 +35,18 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 		CreatedAt:          time.Now().UnixMilli(),
 		IsResponseFinished: false,
 	}
-	cmd := r.RedisClient.Set(ctx, key, val, time.Second*30)
+
+	valBytes, marshalErr := json.Marshal(val)
+
+	if marshalErr != nil {
+		return PostResponse{
+			IsError:      true,
+			ErrorMessage: marshalErr.Error(),
+			RequestId:    key,
+		}
+	}
+
+	cmd := r.RedisClient.Set(ctx, key, string(valBytes), time.Second*30)
 
 	if cmd.Err() != nil {
 		return PostResponse{
