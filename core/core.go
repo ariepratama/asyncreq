@@ -81,7 +81,7 @@ func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetRespo
 	}
 
 	postRequestInternalStr := cmd.Val()
-	var postRequestInternal *PostRequestInternal
+	var postRequestInternal = &PostRequestInternal{}
 
 	unmarshalErr := json.Unmarshal([]byte(postRequestInternalStr), postRequestInternal)
 	if unmarshalErr != nil {
