@@ -1,8 +1,16 @@
-package core
+package asyncreq
 
-import "context"
+import (
+	"context"
+	"github.com/go-redis/redis/v8"
+	"time"
+)
 
 type (
+	PostRequestRedisOptions struct {
+		ttl time.Duration
+	}
+
 	PostRequest struct {
 		Payload string `json:"payload"`
 	}
@@ -25,8 +33,24 @@ type (
 		IsResponseFinished bool   `json:"is_response_finished"`
 	}
 
-	ProcessReqFunCallback func(request PostRequest)
-	ProcessReqFun         func(ctx context.Context, request PostRequest, callback ProcessReqFunCallback)
+	RedisPostHandler struct {
+		RedisClient            *redis.Client
+		PostRequestOptions     PostRequestRedisOptions
+		OnPostRequest          OnPostRequest
+		OnPostRequestCompleted OnPostRequestCompleted
+		OnPostError            OnPostError
+	}
+
+	RedisGetHandler struct {
+		RedisClient *redis.Client
+		OnGetError  OnGetError
+	}
+
+	OnPostRequest          func(ctx context.Context, request PostRequest)
+	OnPostRequestCallback  func(ctx context.Context, request PostRequest) PostResponse
+	OnPostRequestCompleted func(ctx context.Context, request PostRequest) PostResponse
+	OnPostError            func(ctx context.Context, err error) PostResponse
+	OnGetError             func(ctx context.Context, err error) GetResponse
 
 	PostHandler interface {
 		Do(request PostRequest) PostResponse

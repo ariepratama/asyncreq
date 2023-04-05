@@ -1,4 +1,4 @@
-package core
+package asyncreq
 
 import (
 	"context"
@@ -8,18 +8,28 @@ import (
 	"time"
 )
 
-type OnPostRequest struct {
-	Callback      ProcessReqFunCallback
-	ProcessReqFun ProcessReqFun
+func NewRedisPostHandler(redisClient *redis.Client, PostRequestOptions PostRequestRedisOptions, OnPostRequest OnPostRequest, OnPostRequestCompleted OnPostRequestCompleted, OnPostError OnPostError) RedisPostHandler {
+	onPostRequestCallback := func(ctx context.Context, request PostRequest) PostResponse {
+		return OnPostRequestCompleted(ctx, request)
+	}
+
+	return RedisPostHandler{
+		RedisClient:        redisClient,
+		PostRequestOptions: PostRequestOptions,
+		OnPostRequest: func(ctx context.Context, request PostRequest) {
+			OnPostRequest(ctx, request)
+			go onPostRequestCallback(ctx, request)
+		},
+		OnPostRequestCompleted: OnPostRequestCompleted,
+		OnPostError:            OnPostError,
+	}
 }
 
-func (o OnPostRequest) DoWtCtx(ctx context.Context, request PostRequest) {
-	go o.ProcessReqFun(ctx, request, o.Callback)
-}
-
-type RedisPostHandler struct {
-	RedisClient   *redis.Client
-	OnPostRequest OnPostRequest
+func NewRedisGetHandler(redisClient *redis.Client, OnGetError OnGetError) RedisGetHandler {
+	return RedisGetHandler{
+		RedisClient: redisClient,
+		OnGetError:  OnGetError,
+	}
 }
 
 func (r RedisPostHandler) Do(request PostRequest) PostResponse {
@@ -39,34 +49,21 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 	valBytes, marshalErr := json.Marshal(val)
 
 	if marshalErr != nil {
-		return PostResponse{
-			IsError:      true,
-			ErrorMessage: marshalErr.Error(),
-			RequestId:    key,
-		}
+		return r.OnPostError(ctx, marshalErr)
 	}
 
-	cmd := r.RedisClient.Set(ctx, key, string(valBytes), time.Second*30)
+	cmd := r.RedisClient.Set(ctx, key, string(valBytes), r.PostRequestOptions.ttl)
 
 	if cmd.Err() != nil {
-		return PostResponse{
-			IsError:      true,
-			ErrorMessage: cmd.Err().Error(),
-			RequestId:    key,
-		}
+		return r.OnPostError(ctx, cmd.Err())
 	}
 
-	r.OnPostRequest.DoWtCtx(ctx, request)
-
+	go r.OnPostRequest(ctx, request)
 	return PostResponse{
 		IsError:      false,
 		ErrorMessage: "",
 		RequestId:    key,
 	}
-}
-
-type RedisGetHandler struct {
-	RedisClient *redis.Client
 }
 
 func (r RedisGetHandler) Do(requestId string) GetResponse {
@@ -76,8 +73,7 @@ func (r RedisGetHandler) Do(requestId string) GetResponse {
 func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetResponse {
 	cmd := r.RedisClient.Get(ctx, requestId)
 	if cmd.Err() != nil {
-		//TODO implement
-		panic("unhandled getting value from redis")
+		return r.OnGetError(ctx, cmd.Err())
 	}
 
 	postRequestInternalStr := cmd.Val()
@@ -85,8 +81,7 @@ func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetRespo
 
 	unmarshalErr := json.Unmarshal([]byte(postRequestInternalStr), postRequestInternal)
 	if unmarshalErr != nil {
-		//TODO implement
-		panic("unhandled unmarshalling error")
+		return r.OnGetError(ctx, unmarshalErr)
 	}
 
 	if !postRequestInternal.IsResponseFinished {
