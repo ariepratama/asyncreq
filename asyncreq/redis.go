@@ -9,20 +9,15 @@ import (
 )
 
 func NewRedisPostHandler(redisClient *redis.Client, PostRequestOptions PostRequestRedisOptions, OnPostRequest OnPostRequest, OnPostRequestCompleted OnPostRequestCompleted, OnPostError OnPostError) RedisPostHandler {
-	onPostRequestCallback := func(ctx context.Context, request PostRequest) PostResponse {
-		return OnPostRequestCompleted(ctx, request)
-	}
-
-	return RedisPostHandler{
-		RedisClient:        redisClient,
-		PostRequestOptions: PostRequestOptions,
-		OnPostRequest: func(ctx context.Context, request PostRequest) {
-			OnPostRequest(ctx, request)
-			go onPostRequestCallback(ctx, request)
-		},
+	redisPostHandler := RedisPostHandler{
+		RedisClient:            redisClient,
+		PostRequestOptions:     PostRequestOptions,
+		OnPostRequest:          OnPostRequest,
 		OnPostRequestCompleted: OnPostRequestCompleted,
 		OnPostError:            OnPostError,
 	}
+	redisPostHandler.initSubscriber()
+	return redisPostHandler
 }
 
 func NewRedisGetHandler(redisClient *redis.Client, OnGetError OnGetError) RedisGetHandler {
@@ -52,18 +47,43 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 		return r.OnPostError(ctx, marshalErr)
 	}
 
-	cmd := r.RedisClient.Set(ctx, key, string(valBytes), r.PostRequestOptions.ttl)
+	// set the value in redis so it can be polled using get handler
+	cmd := r.RedisClient.Set(ctx, key, string(valBytes), r.PostRequestOptions.Ttl)
 
 	if cmd.Err() != nil {
 		return r.OnPostError(ctx, cmd.Err())
 	}
 
-	go r.OnPostRequest(ctx, request)
+	// publish using redis pubsub, such that the handler could consume and process it
+	r.RedisClient.Publish(ctx, r.PostRequestOptions.RedisChannelName, string(valBytes))
+
 	return PostResponse{
 		IsError:      false,
 		ErrorMessage: "",
 		RequestId:    key,
 	}
+}
+
+func (r RedisPostHandler) initSubscriber() {
+	ctx := context.Background()
+	pubSub := r.RedisClient.Subscribe(ctx, r.PostRequestOptions.RedisChannelName)
+	channel := pubSub.Channel()
+	go func() {
+		for msg := range channel {
+			// message payload should be in a form of PostRequest
+			redisMessagePayload := msg.Payload
+			var postRequest = &PostRequest{}
+			unmarshalErr := json.Unmarshal([]byte(redisMessagePayload), postRequest)
+
+			if unmarshalErr != nil {
+				r.OnPostError(ctx, unmarshalErr)
+			}
+
+			postResponse := r.OnPostRequest(ctx, postRequest)
+			postResponse = r.OnPostRequestCompleted(ctx, postRequest, postResponse)
+		}
+	}()
+
 }
 
 func (r RedisGetHandler) Do(requestId string) GetResponse {

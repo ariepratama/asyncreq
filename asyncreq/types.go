@@ -8,7 +8,8 @@ import (
 
 type (
 	PostRequestRedisOptions struct {
-		ttl time.Duration
+		Ttl              time.Duration
+		RedisChannelName string
 	}
 
 	PostRequest struct {
@@ -46,11 +47,15 @@ type (
 		OnGetError  OnGetError
 	}
 
-	OnPostRequest          func(ctx context.Context, request PostRequest)
-	OnPostRequestCallback  func(ctx context.Context, request PostRequest) PostResponse
-	OnPostRequestCompleted func(ctx context.Context, request PostRequest) PostResponse
-	OnPostError            func(ctx context.Context, err error) PostResponse
-	OnGetError             func(ctx context.Context, err error) GetResponse
+	// OnPostRequest is a function that will be executed after async request successfully queued
+	OnPostRequest func(ctx context.Context, request *PostRequest) PostResponse
+
+	// OnPostRequestCompleted is a function that will be executed after async request successfully executed
+	OnPostRequestCompleted func(ctx context.Context, request *PostRequest, response PostResponse) PostResponse
+
+	// OnPostError is a function that will be executed after async request failed to be executed
+	OnPostError func(ctx context.Context, err error) PostResponse
+	OnGetError  func(ctx context.Context, err error) GetResponse
 
 	PostHandler interface {
 		Do(request PostRequest) PostResponse
