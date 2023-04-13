@@ -50,10 +50,10 @@ type (
 	}
 
 	// OnPostRequest is a function that will be executed after async request successfully queued
-	OnPostRequest func(ctx context.Context, request *PostRequest) AsyncRequestData
+	OnPostRequest func(ctx context.Context, request *AsyncRequestData) AsyncRequestData
 
 	// OnPostRequestCompleted is a function that will be executed after async request successfully executed
-	OnPostRequestCompleted func(ctx context.Context, request *PostRequest, data AsyncRequestData) PostResponse
+	OnPostRequestCompleted func(ctx context.Context, data AsyncRequestData) PostResponse
 
 	// OnPostError is a function that will be executed after async request failed to be executed
 	OnPostError func(ctx context.Context, err error) PostResponse

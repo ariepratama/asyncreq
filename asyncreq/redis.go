@@ -80,21 +80,22 @@ func (r RedisPostHandler) initSubscriber() {
 		for msg := range channel {
 			// message payload should be in a form of PostRequest
 			redisMessagePayload := msg.Payload
-			var postRequest = &PostRequest{}
-			unmarshalErr := json.Unmarshal([]byte(redisMessagePayload), postRequest)
+			var asyncRequestData = &AsyncRequestData{}
+			unmarshalErr := json.Unmarshal([]byte(redisMessagePayload), asyncRequestData)
+			requestId := asyncRequestData.RequestId
 
 			if unmarshalErr != nil {
 				r.OnPostError(ctx, unmarshalErr)
 			}
 
-			asyncRequestDataResult := r.OnPostRequest(ctx, postRequest)
-			postResponse := r.OnPostRequestCompleted(ctx, postRequest, asyncRequestDataResult)
+			asyncRequestDataResult := r.OnPostRequest(ctx, asyncRequestData)
+			r.OnPostRequestCompleted(ctx, asyncRequestDataResult)
 
 			// then replace result in the cache
-			cmd := r.RedisClient.Get(ctx, postResponse.RequestId)
+			cmd := r.RedisClient.Get(ctx, requestId)
 			if cmd.Err() != nil {
 				log.Warn().
-					Msgf("Error getting redis key=%v err=%v", postResponse.RequestId, cmd.Err())
+					Msgf("Error getting redis key=%v err=%v", requestId, cmd.Err())
 				r.OnPostError(ctx, cmd.Err())
 				continue
 			}
@@ -107,14 +108,14 @@ func (r RedisPostHandler) initSubscriber() {
 				log.Warn().
 					Msgf(
 						"Error unmarshalling from redis key=%v err=%v",
-						postResponse.RequestId,
+						requestId,
 						getRequestUnmarshallErr)
 				r.OnPostError(ctx, unmarshalErr)
 				continue
 			}
 
 			newAsyncRequestData := &AsyncRequestData{
-				RequestId:          asyncRequestDataFromCache.RequestId,
+				RequestId:          requestId,
 				RequestPayload:     asyncRequestDataFromCache.RequestPayload,
 				ResponsePayload:    asyncRequestDataResult.ResponsePayload,
 				CreatedAt:          asyncRequestDataFromCache.CreatedAt,
@@ -134,13 +135,13 @@ func (r RedisPostHandler) initSubscriber() {
 				continue
 			}
 
-			setCmd := r.RedisClient.Set(ctx, newAsyncRequestData.RequestId, string(newAsyncRequestDataBytes), r.PostRequestOptions.Ttl)
+			setCmd := r.RedisClient.Set(ctx, requestId, string(newAsyncRequestDataBytes), r.PostRequestOptions.Ttl)
 
 			if setCmd.Err() != nil {
 				log.Warn().
 					Msgf(
 						"Error setting redis value key=%v val=%v err=%v",
-						newAsyncRequestData.RequestId,
+						requestId,
 						string(newAsyncRequestDataBytes),
 						setCmd.Err())
 				r.OnPostError(ctx, cmd.Err())
