@@ -34,11 +34,13 @@ func (r RedisPostHandler) Do(request PostRequest) PostResponse {
 func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) PostResponse {
 	requestId, _ := uuid.NewUUID()
 	key := requestId.String()
-	val := &PostRequestInternal{
-		RequestPayload:     request.Payload,
+	val := &AsyncRequestData{
+		RequestId:          key,
+		RequestPayload:     request.RequestPayload,
 		ResponsePayload:    "",
 		CreatedAt:          time.Now().UnixMilli(),
 		IsResponseFinished: false,
+		IsResponseError:    false,
 	}
 
 	valBytes, marshalErr := json.Marshal(val)
@@ -79,8 +81,45 @@ func (r RedisPostHandler) initSubscriber() {
 				r.OnPostError(ctx, unmarshalErr)
 			}
 
-			postResponse := r.OnPostRequest(ctx, postRequest)
-			postResponse = r.OnPostRequestCompleted(ctx, postRequest, postResponse)
+			asyncRequestDataResult := r.OnPostRequest(ctx, postRequest)
+			postResponse := r.OnPostRequestCompleted(ctx, postRequest, asyncRequestDataResult)
+
+			// then replace result in the cache
+			cmd := r.RedisClient.Get(ctx, postResponse.RequestId)
+			if cmd.Err() != nil {
+				r.OnPostError(ctx, cmd.Err())
+				return
+			}
+
+			asyncRequestDataFromCacheStr := cmd.Val()
+			var asyncRequestDataFromCache = &AsyncRequestData{}
+
+			getRequestUnmarshallErr := json.Unmarshal([]byte(asyncRequestDataFromCacheStr), asyncRequestDataFromCache)
+			if getRequestUnmarshallErr != nil {
+				r.OnPostError(ctx, unmarshalErr)
+				return
+			}
+
+			newAsyncRequestData := &AsyncRequestData{
+				RequestId:          asyncRequestDataFromCache.RequestId,
+				RequestPayload:     asyncRequestDataFromCache.RequestPayload,
+				ResponsePayload:    asyncRequestDataResult.ResponsePayload,
+				CreatedAt:          asyncRequestDataFromCache.CreatedAt,
+				IsResponseFinished: true,
+				IsResponseError:    asyncRequestDataResult.IsResponseError,
+			}
+
+			newAsyncRequestDataBytes, marshalErr := json.Marshal(newAsyncRequestData)
+
+			if marshalErr != nil {
+				r.OnPostError(ctx, marshalErr)
+			}
+
+			setCmd := r.RedisClient.Set(ctx, newAsyncRequestData.RequestId, string(newAsyncRequestDataBytes), r.PostRequestOptions.Ttl)
+
+			if setCmd.Err() != nil {
+				r.OnPostError(ctx, cmd.Err())
+			}
 		}
 	}()
 
@@ -97,14 +136,14 @@ func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetRespo
 	}
 
 	postRequestInternalStr := cmd.Val()
-	var postRequestInternal = &PostRequestInternal{}
+	var asyncRequestData = &AsyncRequestData{}
 
-	unmarshalErr := json.Unmarshal([]byte(postRequestInternalStr), postRequestInternal)
+	unmarshalErr := json.Unmarshal([]byte(postRequestInternalStr), asyncRequestData)
 	if unmarshalErr != nil {
 		return r.OnGetError(ctx, unmarshalErr)
 	}
 
-	if !postRequestInternal.IsResponseFinished {
+	if !asyncRequestData.IsResponseFinished {
 		return GetResponse{
 			IsRequestFinished: false,
 			ResponsePayload:   "",
@@ -113,6 +152,6 @@ func (r RedisGetHandler) DoWtCtx(ctx context.Context, requestId string) GetRespo
 
 	return GetResponse{
 		IsRequestFinished: true,
-		ResponsePayload:   postRequestInternal.ResponsePayload,
+		ResponsePayload:   asyncRequestData.ResponsePayload,
 	}
 }

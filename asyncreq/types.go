@@ -13,7 +13,7 @@ type (
 	}
 
 	PostRequest struct {
-		Payload string `json:"payload"`
+		RequestPayload string `json:"request_payload"`
 	}
 
 	PostResponse struct {
@@ -27,11 +27,13 @@ type (
 		ResponsePayload   string `json:"response_payload"`
 	}
 
-	PostRequestInternal struct {
+	AsyncRequestData struct {
+		RequestId          string `json:"request_id"`
 		RequestPayload     string `json:"request_payload"`
 		ResponsePayload    string `json:"response_payload"`
 		CreatedAt          int64  `json:"created_at"`
 		IsResponseFinished bool   `json:"is_response_finished"`
+		IsResponseError    bool   `json:"is_response_error"`
 	}
 
 	RedisPostHandler struct {
@@ -48,14 +50,16 @@ type (
 	}
 
 	// OnPostRequest is a function that will be executed after async request successfully queued
-	OnPostRequest func(ctx context.Context, request *PostRequest) PostResponse
+	OnPostRequest func(ctx context.Context, request *PostRequest) AsyncRequestData
 
 	// OnPostRequestCompleted is a function that will be executed after async request successfully executed
-	OnPostRequestCompleted func(ctx context.Context, request *PostRequest, response PostResponse) PostResponse
+	OnPostRequestCompleted func(ctx context.Context, request *PostRequest, data AsyncRequestData) PostResponse
 
 	// OnPostError is a function that will be executed after async request failed to be executed
 	OnPostError func(ctx context.Context, err error) PostResponse
-	OnGetError  func(ctx context.Context, err error) GetResponse
+
+	// OnGetError is a function that will be executed if get / describe request status failed
+	OnGetError func(ctx context.Context, err error) GetResponse
 
 	PostHandler interface {
 		Do(request PostRequest) PostResponse
