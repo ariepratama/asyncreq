@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -57,6 +58,11 @@ func (r RedisPostHandler) DoWtCtx(ctx context.Context, request PostRequest) Post
 	}
 
 	// publish using redis pubsub, such that the handler could consume and process it
+	log.Debug().
+		Msgf(
+			"Publishing request to redis channel=%v data=%v",
+			r.PostRequestOptions.RedisChannelName,
+			string(valBytes))
 	r.RedisClient.Publish(ctx, r.PostRequestOptions.RedisChannelName, string(valBytes))
 
 	return PostResponse{
@@ -87,8 +93,10 @@ func (r RedisPostHandler) initSubscriber() {
 			// then replace result in the cache
 			cmd := r.RedisClient.Get(ctx, postResponse.RequestId)
 			if cmd.Err() != nil {
+				log.Warn().
+					Msgf("Error getting redis key=%v err=%v", postResponse.RequestId, cmd.Err())
 				r.OnPostError(ctx, cmd.Err())
-				return
+				continue
 			}
 
 			asyncRequestDataFromCacheStr := cmd.Val()
@@ -96,8 +104,13 @@ func (r RedisPostHandler) initSubscriber() {
 
 			getRequestUnmarshallErr := json.Unmarshal([]byte(asyncRequestDataFromCacheStr), asyncRequestDataFromCache)
 			if getRequestUnmarshallErr != nil {
+				log.Warn().
+					Msgf(
+						"Error unmarshalling from redis key=%v err=%v",
+						postResponse.RequestId,
+						getRequestUnmarshallErr)
 				r.OnPostError(ctx, unmarshalErr)
-				return
+				continue
 			}
 
 			newAsyncRequestData := &AsyncRequestData{
@@ -112,13 +125,26 @@ func (r RedisPostHandler) initSubscriber() {
 			newAsyncRequestDataBytes, marshalErr := json.Marshal(newAsyncRequestData)
 
 			if marshalErr != nil {
+				log.Warn().
+					Msgf(
+						"Error marshaling asyncRequestData key=%v err=%v",
+						newAsyncRequestData,
+						marshalErr)
 				r.OnPostError(ctx, marshalErr)
+				continue
 			}
 
 			setCmd := r.RedisClient.Set(ctx, newAsyncRequestData.RequestId, string(newAsyncRequestDataBytes), r.PostRequestOptions.Ttl)
 
 			if setCmd.Err() != nil {
+				log.Warn().
+					Msgf(
+						"Error setting redis value key=%v val=%v err=%v",
+						newAsyncRequestData.RequestId,
+						string(newAsyncRequestDataBytes),
+						setCmd.Err())
 				r.OnPostError(ctx, cmd.Err())
+				continue
 			}
 		}
 	}()
